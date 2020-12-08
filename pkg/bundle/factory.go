@@ -1,10 +1,9 @@
 package bundle
 
 import (
-	"io/ioutil"
-	"os"
-	"path"
-	"path/filepath"
+	"archive/tar"
+	"compress/gzip"
+	"io"
 )
 
 type Mode int
@@ -20,10 +19,16 @@ type Factory struct {
 	Mode      Mode
 }
 
-func (f *Factory) WriteBundle(root string, data Data) error {
+func (f *Factory) WriteBundle(out io.Writer, data Data) error {
+	gz := gzip.NewWriter(out)
+	defer gz.Close()
+	tw := tar.NewWriter(gz)
+	defer tw.Close()
 	for p, buf := range data.Generate(f) {
-		_ = os.MkdirAll(path.Join(root, filepath.Dir(p)), os.ModePerm)
-		if err := ioutil.WriteFile(path.Join(root, p), buf.Bytes(), os.ModePerm); err != nil {
+		if err := tw.WriteHeader(&tar.Header{Name: p, Mode: 0600, Size: int64(buf.Len())}); err != nil {
+			return err
+		}
+		if _, err := tw.Write(buf.Bytes()); err != nil {
 			return err
 		}
 	}

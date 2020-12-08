@@ -68,34 +68,36 @@ func (l *Lego) ScheduleSetBundle(fetcher BundleFetcher, interval time.Duration, 
 }
 
 func (l *Lego) SetBundle(data bundle.Service) error {
-	dir, err := ioutil.TempDir(os.TempDir(), "bundle-*")
+	file, err := ioutil.TempFile(os.TempDir(), "bundle-*.tar.gz")
 	if err != nil {
 		return nil
 	}
-	defer os.RemoveAll(dir)
+	defer os.Remove(file.Name())
 
-	if err := l.f.WriteBundle(dir, map[string]bundle.Service{
+	if err := l.f.WriteBundle(file, map[string]bundle.Service{
 		"svc": data,
 	}); err != nil {
+		file.Close()
 		return err
 	}
+	file.Close()
 
 	switch c := l.c.(type) {
 	case *LocalClient:
-		b, err := loader.NewFileLoader().AsBundle(dir)
+		b, err := loader.NewFileLoader().AsBundle(file.Name())
 		if err != nil {
 			return err
 		}
 		c.setBundle(b)
 	case *RemoteClient:
-
+		return os.Rename(file.Name(), l.r.BundleDst)
 	}
-
 	return nil
 }
 
 type SidecarOPA struct {
-	Addr string
+	Addr      string
+	BundleDst string
 }
 
 type QueryOption struct {
