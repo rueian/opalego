@@ -12,6 +12,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 	"time"
 )
@@ -174,10 +175,11 @@ func prepare(mode bundle.Mode, option QueryOption) (query string, input map[stri
 	case bundle.FlattenMode:
 		query = fmt.Sprintf("data.svc.members.%s.%s", option.UID, option.Rule)
 	case bundle.GroupMode:
-		query = fmt.Sprintf("data.svc.groups.%s.%s", option.UID, option.Rule)
+		query = fmt.Sprintf("data.svc.groups[data.svc.memberships.%s[_]].%s", option.UID, option.Rule)
 	case bundle.DataMode:
 		query = fmt.Sprintf("data.svc.%s", option.Rule)
 		input["uid"] = option.UID
 	}
+	query = strings.TrimRight(query, ".")
 	return
 }
