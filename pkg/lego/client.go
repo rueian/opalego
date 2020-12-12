@@ -159,10 +159,11 @@ func (r *RemoteClient) Query(ctx context.Context, option QueryOption) (output re
 		return nil, err
 	}
 	defer resp.Body.Close()
+	bs, _ = ioutil.ReadAll(resp.Body)
 	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("opa error: %d", resp.StatusCode)
+		return nil, fmt.Errorf("opa error: %d: %s", resp.StatusCode, bs)
 	}
-	err = json.NewDecoder(resp.Body).Decode(&output)
+	err = json.Unmarshal(bs, &output)
 	return
 }
 
