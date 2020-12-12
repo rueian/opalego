@@ -163,7 +163,10 @@ func (r *RemoteClient) Query(ctx context.Context, option QueryOption) (output re
 	if resp.StatusCode != 200 {
 		return nil, fmt.Errorf("opa error: %d: %s", resp.StatusCode, bs)
 	}
-	err = json.Unmarshal(bs, &output)
+	result := map[string]rego.ResultSet{}
+	if err = json.Unmarshal(bs, &result); err == nil {
+		output = result["result"]
+	}
 	return
 }
 
