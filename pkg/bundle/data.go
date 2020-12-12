@@ -65,15 +65,15 @@ func (s *Service) Generate(list map[string]*bytes.Buffer, root string) {
 		for k, m := range s.Members {
 			memberships[k] = m.Groups
 		}
-		list["memberships/data.json"] = &bytes.Buffer{}
-		json.NewEncoder(list["memberships/data.json"]).Encode(memberships)
+		list[root+"/memberships/data.json"] = &bytes.Buffer{}
+		json.NewEncoder(list[root+"/memberships/data.json"]).Encode(memberships)
 	case DataMode:
 		memberroles := map[string][]string{}
 		for k, m := range s.Members {
 			memberroles[k] = fullRoles(&m, s)
 		}
-		list["memberroles/data.json"] = &bytes.Buffer{}
-		json.NewEncoder(list["memberroles/data.json"]).Encode(memberroles)
+		list[root+"/memberroles/data.json"] = &bytes.Buffer{}
+		json.NewEncoder(list[root+"/memberroles/data.json"]).Encode(memberroles)
 	}
 }
 
