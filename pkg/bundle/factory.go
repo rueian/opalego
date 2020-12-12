@@ -15,8 +15,8 @@ const (
 )
 
 type Factory struct {
-	RegoPiece map[string]string
-	Mode      Mode
+	RegoPiece map[string]string `json:"regoPiece"`
+	Mode      Mode              `json:"mode"`
 }
 
 func (f *Factory) WriteBundle(out io.Writer, data Data) error {
