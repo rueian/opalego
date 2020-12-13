@@ -51,13 +51,14 @@ func (d Data) Generate(f *Factory) map[string]*bytes.Buffer {
 }
 
 func (s *Service) Generate(list map[string]*bytes.Buffer, root string) {
-	s.Base.Generate(list, root, s)
 	switch s.f.Mode {
 	case FlattenMode:
+		s.Base.Generate(list, root, nil)
 		for k, m := range s.Members {
 			m.Generate(list, path.Join(root, "members", k), s)
 		}
 	case GroupMode:
+		s.Base.Generate(list, root, nil)
 		for k, m := range s.Groups {
 			m.Generate(list, path.Join(root, "groups", k), s)
 		}
@@ -68,6 +69,7 @@ func (s *Service) Generate(list map[string]*bytes.Buffer, root string) {
 		list[root+"/memberships/data.json"] = &bytes.Buffer{}
 		json.NewEncoder(list[root+"/memberships/data.json"]).Encode(memberships)
 	case DataMode:
+		s.Base.Generate(list, root, s)
 		memberroles := map[string][]string{}
 		for k, m := range s.Members {
 			memberroles[k] = fullRoles(&m, s)
@@ -99,7 +101,11 @@ func (m *Group) Generate(list map[string]*bytes.Buffer, root string, s *Service)
 
 func (b *Base) Generate(list map[string]*bytes.Buffer, root string, s *Service) {
 	main := &bytes.Buffer{}
-	fmt.Fprintf(main, "package %s\n%s\n", strings.ReplaceAll(root, "/", "."), b.Rego)
+	if s == nil {
+		fmt.Fprintf(main, "package %s\n%s\n", strings.ReplaceAll(root, "/", "."), b.Rego)
+	} else {
+		fmt.Fprintf(main, "package %s\n%s\n%s\n", strings.ReplaceAll(root, "/", "."), b.Rego, s.f.Base.Rego)
+	}
 	list[path.Join(root, "main.rego")] = main
 
 	if b.Extra != nil {

@@ -15,6 +15,7 @@ const (
 )
 
 type Factory struct {
+	Base
 	RegoPiece map[string]string `json:"regoPiece"`
 	Mode      Mode              `json:"mode"`
 }
