@@ -48,7 +48,11 @@ func main() {
 		}))
 
 		bundler.ScheduleSetBundle(&fetcher{URL: FetchURL}, Interval, func(err error) {
-			log.Println("fetch err", err.Error())
+			if err == nil {
+				log.Println("bundle refreshed")
+			} else {
+				log.Println("bundle err", err.Error())
+			}
 		})
 
 		sigs := make(chan os.Signal, 1)

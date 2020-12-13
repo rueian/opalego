@@ -60,7 +60,7 @@ func (l *Lego) Client() Client {
 	return l.c
 }
 
-func (l *Lego) ScheduleSetBundle(fetcher BundleFetcher, interval time.Duration, onErr func(error)) {
+func (l *Lego) ScheduleSetBundle(fetcher BundleFetcher, interval time.Duration, onDone func(error)) {
 	l.schedule.Do(func() {
 		go func() {
 			for {
@@ -68,8 +68,8 @@ func (l *Lego) ScheduleSetBundle(fetcher BundleFetcher, interval time.Duration, 
 				if err == nil {
 					err = l.SetBundle(data)
 				}
-				if err != nil && onErr != nil {
-					onErr(err)
+				if onDone != nil {
+					onDone(err)
 				}
 				time.Sleep(interval)
 			}
