@@ -108,7 +108,7 @@ type QueryOption struct {
 }
 
 type Client interface {
-	Query(ctx context.Context, option QueryOption) (output rego.ResultSet, err error)
+	Query(ctx context.Context, option QueryOption) (output interface{}, err error)
 }
 
 type LocalClient struct {
@@ -123,7 +123,7 @@ func (l *LocalClient) setBundle(bundle *rb.Bundle) {
 	l.mu.Unlock()
 }
 
-func (l *LocalClient) Query(ctx context.Context, option QueryOption) (output rego.ResultSet, err error) {
+func (l *LocalClient) Query(ctx context.Context, option QueryOption) (output interface{}, err error) {
 	query, input := prepare(l.f.Mode, option)
 	l.mu.Lock()
 	r := rego.New(
@@ -132,7 +132,11 @@ func (l *LocalClient) Query(ctx context.Context, option QueryOption) (output reg
 		rego.ParsedBundle("svc", l.bundle),
 	)
 	l.mu.Unlock()
-	return r.Eval(ctx)
+	rs, err := r.Eval(ctx)
+	if err != nil || len(rs) == 0 || len(rs[0].Bindings) == 0 {
+		return nil, err
+	}
+	return rs[0].Bindings["x"], nil
 }
 
 type RemoteClient struct {
@@ -140,7 +144,7 @@ type RemoteClient struct {
 	r SidecarOPA
 }
 
-func (r *RemoteClient) Query(ctx context.Context, option QueryOption) (output rego.ResultSet, err error) {
+func (r *RemoteClient) Query(ctx context.Context, option QueryOption) (output interface{}, err error) {
 	query, input := prepare(r.f.Mode, option)
 	bs, err := json.Marshal(map[string]interface{}{
 		"query": query,
@@ -163,9 +167,15 @@ func (r *RemoteClient) Query(ctx context.Context, option QueryOption) (output re
 	if resp.StatusCode != 200 {
 		return nil, fmt.Errorf("opa error: %d: %s", resp.StatusCode, bs)
 	}
-	result := map[string]rego.ResultSet{}
+	result := map[string]interface{}{}
 	if err = json.Unmarshal(bs, &result); err == nil {
-		output = result["result"]
+		rs := result["result"]
+		if rse, ok := rs.([]interface{}); ok && len(rse) != 0 {
+			rs = rse[0]
+		}
+		if kv, ok := rs.(map[string]interface{}); ok {
+			return kv["x"], nil
+		}
 	}
 	return
 }
@@ -177,13 +187,16 @@ func prepare(mode bundle.Mode, option QueryOption) (query string, input map[stri
 	}
 	switch mode {
 	case bundle.FlattenMode:
-		query = fmt.Sprintf("data.svc.members.%s.%s", option.UID, option.Rule)
+		query = fmt.Sprintf("x := data.svc.members.%s.%s", option.UID, option.Rule)
+		query = strings.TrimRight(query, ".")
 	case bundle.GroupMode:
-		query = fmt.Sprintf("data.svc.groups[data.svc.memberships.%s[_]].%s", option.UID, option.Rule)
+		query = fmt.Sprintf("y := data.svc.groups[data.svc.memberships.%s[_]].%s", option.UID, option.Rule)
+		query = strings.TrimRight(query, ".")
+		query = fmt.Sprintf("x := [y | %s]", query)
 	case bundle.DataMode:
-		query = fmt.Sprintf("data.svc.%s", option.Rule)
+		query = fmt.Sprintf("x := data.svc.%s", option.Rule)
+		query = strings.TrimRight(query, ".")
 		input["uid"] = option.UID
 	}
-	query = strings.TrimRight(query, ".")
 	return
 }
