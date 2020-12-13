@@ -23,8 +23,6 @@ var (
 	ConfigPath string
 )
 
-const DummyRemoteAddr = "127.0.0.1:8080"
-
 func main() {
 	var rootCmd = &cobra.Command{Short: "OPA bundle maker from remote path or local json"}
 	rootCmd.PersistentFlags().StringVarP(&ConfigPath, "config", "c", "", "factory config path")
@@ -46,7 +44,6 @@ func main() {
 		}
 
 		bundler := lego.NewLego(factory, lego.WithSidecar(lego.SidecarOPA{
-			Addr:      DummyRemoteAddr,
 			BundleDst: OutPath,
 		}))
 

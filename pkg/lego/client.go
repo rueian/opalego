@@ -8,7 +8,9 @@ import (
 	rb "github.com/open-policy-agent/opa/bundle"
 	"github.com/open-policy-agent/opa/loader"
 	"github.com/open-policy-agent/opa/rego"
+	"github.com/open-policy-agent/opa/topdown"
 	"github.com/rueian/opalego/pkg/bundle"
+	"github.com/rueian/opalego/pkg/untar"
 	"io/ioutil"
 	"net/http"
 	"os"
@@ -23,8 +25,9 @@ type BundleFetcher interface {
 
 type Lego struct {
 	f        bundle.Factory
-	r        SidecarOPA
 	c        Client
+	r        *SidecarOPA
+	debug    *DebugOption
 	schedule sync.Once
 }
 
@@ -33,17 +36,23 @@ func NewLego(f bundle.Factory, options ...func(*Lego)) *Lego {
 	for _, o := range options {
 		o(l)
 	}
-	if l.r.Addr == "" {
-		l.c = &LocalClient{f: f}
+	if l.r == nil {
+		l.c = &LocalClient{l: l}
 	} else {
-		l.c = &RemoteClient{f: f, r: l.r}
+		l.c = &RemoteClient{l: l}
 	}
 	return l
 }
 
 func WithSidecar(r SidecarOPA) func(*Lego) {
 	return func(l *Lego) {
-		l.r = r
+		l.r = &r
+	}
+}
+
+func WithDebug(o DebugOption) func(*Lego) {
+	return func(l *Lego) {
+		l.debug = &o
 	}
 }
 
@@ -83,6 +92,12 @@ func (l *Lego) SetBundle(data bundle.Service) error {
 	}
 	file.Close()
 
+	if l.debug != nil && l.debug.UnTarBundleDir != "" {
+		f, _ := os.Open(file.Name())
+		untar.Untar(f, l.debug.UnTarBundleDir)
+		f.Close()
+	}
+
 	switch c := l.c.(type) {
 	case *LocalClient:
 		b, err := loader.NewFileLoader().AsBundle(file.Name())
@@ -101,6 +116,12 @@ type SidecarOPA struct {
 	BundleDst string
 }
 
+type DebugOption struct {
+	UnTarBundleDir string
+	OnRequest      func(request interface{})
+	OnResponse     func(response interface{})
+}
+
 type QueryOption struct {
 	UID   string
 	Rule  string
@@ -112,27 +133,39 @@ type Client interface {
 }
 
 type LocalClient struct {
-	f      bundle.Factory
+	l      *Lego
 	mu     sync.Mutex
 	bundle *rb.Bundle
 }
 
-func (l *LocalClient) setBundle(bundle *rb.Bundle) {
-	l.mu.Lock()
-	l.bundle = bundle
-	l.mu.Unlock()
+func (c *LocalClient) setBundle(bundle *rb.Bundle) {
+	c.mu.Lock()
+	c.bundle = bundle
+	c.mu.Unlock()
 }
 
-func (l *LocalClient) Query(ctx context.Context, option QueryOption) (output interface{}, err error) {
-	query, input := prepare(l.f.Mode, option)
-	l.mu.Lock()
-	r := rego.New(
-		rego.Query(query),
-		rego.Input(input),
-		rego.ParsedBundle("svc", l.bundle),
-	)
-	l.mu.Unlock()
-	rs, err := r.Eval(ctx)
+func (c *LocalClient) Query(ctx context.Context, option QueryOption) (output interface{}, err error) {
+	query, input := prepare(c.l.f.Mode, option)
+
+	c.mu.Lock()
+	options := []func(*rego.Rego){rego.Query(query), rego.Input(input), rego.ParsedBundle("svc", c.bundle)}
+	c.mu.Unlock()
+
+	var tracer *topdown.BufferTracer
+	if c.l.debug != nil && c.l.debug.OnRequest != nil {
+		tracer = topdown.NewBufferTracer()
+		options = append(options, rego.QueryTracer(tracer))
+		if c.l.debug.OnRequest != nil {
+			c.l.debug.OnRequest(map[string]interface{}{"query": query, "input": input})
+		}
+	}
+
+	rs, err := rego.New(options...).Eval(ctx)
+
+	if c.l.debug != nil && c.l.debug.OnResponse != nil {
+		c.l.debug.OnResponse(map[string]interface{}{"rs": rs, "err": err, "tracer": tracer})
+	}
+
 	if err != nil || len(rs) == 0 || len(rs[0].Bindings) == 0 {
 		return nil, err
 	}
@@ -140,12 +173,11 @@ func (l *LocalClient) Query(ctx context.Context, option QueryOption) (output int
 }
 
 type RemoteClient struct {
-	f bundle.Factory
-	r SidecarOPA
+	l *Lego
 }
 
-func (r *RemoteClient) Query(ctx context.Context, option QueryOption) (output interface{}, err error) {
-	query, input := prepare(r.f.Mode, option)
+func (c *RemoteClient) Query(ctx context.Context, option QueryOption) (output interface{}, err error) {
+	query, input := prepare(c.l.f.Mode, option)
 	bs, err := json.Marshal(map[string]interface{}{
 		"query": query,
 		"input": input,
@@ -153,20 +185,41 @@ func (r *RemoteClient) Query(ctx context.Context, option QueryOption) (output in
 	if err != nil {
 		return nil, err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, r.r.Addr+"/v1/query", bytes.NewReader(bs))
+
+	endpoint := c.l.r.Addr + "/v1/query"
+	if c.l.debug != nil {
+		endpoint += "?explain=full"
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(bs))
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
+
+	if c.l.debug != nil && c.l.debug.OnRequest != nil {
+		c.l.debug.OnRequest(map[string]interface{}{"req": req, "body": string(bs)})
+	}
+
 	resp, err := http.DefaultClient.Do(req)
+
+	if c.l.debug != nil && c.l.debug.OnResponse != nil {
+		bs = nil
+		defer func() {
+			c.l.debug.OnResponse(map[string]interface{}{"resp": resp, "err": err, "body": string(bs)})
+		}()
+	}
+
 	if err != nil {
 		return nil, err
 	}
+
 	defer resp.Body.Close()
 	bs, _ = ioutil.ReadAll(resp.Body)
 	if resp.StatusCode != 200 {
 		return nil, fmt.Errorf("opa error: %d: %s", resp.StatusCode, bs)
 	}
+
 	result := map[string]interface{}{}
 	if err = json.Unmarshal(bs, &result); err == nil {
 		rs := result["result"]
