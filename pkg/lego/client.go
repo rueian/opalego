@@ -77,26 +77,29 @@ func (l *Lego) ScheduleSetBundle(fetcher BundleFetcher, interval time.Duration, 
 	})
 }
 
-func (l *Lego) SetBundle(data bundle.Service) error {
-	file, err := ioutil.TempFile(os.TempDir(), "bundle-*.tar.gz")
+func (l *Lego) SetBundle(data bundle.Service) (err error) {
+	var file *os.File
+	if l.r != nil {
+		file, err = os.Create(l.r.BundleDst + ".tmp")
+	} else {
+		file, err = ioutil.TempFile(os.TempDir(), "bundle-*.tar.gz")
+	}
 	if err != nil {
-		return nil
+		return err
 	}
 	defer os.Remove(file.Name())
 
-	if err := l.f.WriteBundle(file, map[string]bundle.Service{
-		"svc": data,
-	}); err != nil {
+	if err = l.f.WriteBundle(file, map[string]bundle.Service{"svc": data}); err != nil {
 		file.Close()
 		return err
 	}
-	file.Close()
 
 	if l.debug != nil && l.debug.UnTarBundleDir != "" {
-		f, _ := os.Open(file.Name())
-		untar.Untar(f, l.debug.UnTarBundleDir)
-		f.Close()
+		if _, err = file.Seek(0, 0); err == nil {
+			err = untar.Untar(file, l.debug.UnTarBundleDir)
+		}
 	}
+	file.Close()
 
 	switch c := l.c.(type) {
 	case *LocalClient:
@@ -108,7 +111,7 @@ func (l *Lego) SetBundle(data bundle.Service) error {
 	case *RemoteClient:
 		return os.Rename(file.Name(), l.r.BundleDst)
 	}
-	return nil
+	return err
 }
 
 type SidecarOPA struct {
