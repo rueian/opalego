@@ -28,22 +28,19 @@ func (f *Factory) WriteBundle(out io.Writer, data Data) error {
 	tw := tar.NewWriter(gz)
 	defer tw.Close()
 
-	for _, s := range data {
+	for k, s := range data {
+		nm := make(map[string]Member, len(s.Members))
+		ng := make(map[string]Group, len(s.Groups))
 		for k, m := range s.Members {
-			for i, g := range m.Groups {
-				m.Groups[i] = Normalize(g)
-			}
-			if n := Normalize(k); n != k {
-				s.Members[n] = m
-				delete(s.Members, k)
-			}
+			m.Groups = NormalizeSlice(m.Groups)
+			nm[Normalize(k)] = m
 		}
 		for k, g := range s.Groups {
-			if n := Normalize(k); n != k {
-				s.Groups[n] = g
-				delete(s.Groups, k)
-			}
+			ng[Normalize(k)] = g
 		}
+		s.Members = nm
+		s.Groups = ng
+		data[k] = s
 	}
 
 	for p, buf := range data.Generate(f) {
@@ -59,7 +56,15 @@ func (f *Factory) WriteBundle(out io.Writer, data Data) error {
 
 func Normalize(s string) string {
 	s = strings.ToLower(s)
-	return "u" + normalizer.ReplaceAllString(s, "_")
+	return "g" + normalizer.ReplaceAllString(s, "_")
+}
+
+func NormalizeSlice(s []string) []string {
+	o := make([]string, len(s))
+	for i, v := range s {
+		o[i] = Normalize(v)
+	}
+	return o
 }
 
 var normalizer = regexp.MustCompile("[^a-z0-9]+")
