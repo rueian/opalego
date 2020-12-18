@@ -243,16 +243,16 @@ func prepare(mode bundle.Mode, option QueryOption) (query string, input map[stri
 	}
 	switch mode {
 	case bundle.FlattenMode:
-		query = fmt.Sprintf("x := data.svc.members.%s.%s", option.UID, option.Rule)
+		query = fmt.Sprintf("x := data.svc.members.%s.%s", bundle.Normalize(option.UID), option.Rule)
 		query = strings.TrimRight(query, ".")
 	case bundle.GroupMode:
-		query = fmt.Sprintf("y := data.svc.groups[data.svc.memberships.%s[_]].%s", option.UID, option.Rule)
+		query = fmt.Sprintf("y := data.svc.groups[data.svc.memberships.%s[_]].%s", bundle.Normalize(option.UID), option.Rule)
 		query = strings.TrimRight(query, ".")
 		query = fmt.Sprintf("x := [y | %s]", query)
 	case bundle.DataMode:
 		query = fmt.Sprintf("x := data.svc.%s", option.Rule)
 		query = strings.TrimRight(query, ".")
-		input["uid"] = option.UID
+		input["uid"] = bundle.Normalize(option.UID)
 	}
 	return
 }
