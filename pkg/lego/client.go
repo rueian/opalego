@@ -16,6 +16,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -28,7 +29,7 @@ type Lego struct {
 	c        Client
 	r        *SidecarOPA
 	debug    *DebugOption
-	schedule sync.Once
+	schedule int64
 }
 
 func NewLego(f bundle.Factory, options ...func(*Lego)) *Lego {
@@ -61,9 +62,9 @@ func (l *Lego) Client() Client {
 }
 
 func (l *Lego) ScheduleSetBundle(fetcher BundleFetcher, interval time.Duration, onDone func(error)) {
-	l.schedule.Do(func() {
+	if atomic.CompareAndSwapInt64(&l.schedule, 0, 1) {
 		go func() {
-			for {
+			for atomic.LoadInt64(&l.schedule) == 1 {
 				data, err := fetcher.Fetch()
 				if err == nil {
 					err = l.SetBundle(data)
@@ -74,7 +75,11 @@ func (l *Lego) ScheduleSetBundle(fetcher BundleFetcher, interval time.Duration, 
 				time.Sleep(interval)
 			}
 		}()
-	})
+	}
+}
+
+func (l *Lego) StopSchedule() bool {
+	return atomic.CompareAndSwapInt64(&l.schedule, 1, 2)
 }
 
 func (l *Lego) SetBundle(data bundle.Service) (err error) {
