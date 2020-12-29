@@ -148,7 +148,7 @@ func (c *LocalClient) setBundle(bundle *rb.Bundle) {
 }
 
 func (c *LocalClient) Query(ctx context.Context, option QueryOption) (output interface{}, err error) {
-	query, input := prepare(c.l.f.Mode, option)
+	query, input := localPrepare(c.l.f.Mode, option)
 
 	c.mu.Lock()
 	options := []func(*rego.Rego){rego.Query(query), rego.Input(input), rego.ParsedBundle("svc", c.bundle)}
@@ -180,16 +180,13 @@ type RemoteClient struct {
 }
 
 func (c *RemoteClient) Query(ctx context.Context, option QueryOption) (output interface{}, err error) {
-	query, input := prepare(c.l.f.Mode, option)
-	bs, err := json.Marshal(map[string]interface{}{
-		"query": query,
-		"input": input,
-	})
+	endpoint, body, binding := remotePrepare(c.l.f.Mode, option)
+	bs, err := json.Marshal(body)
 	if err != nil {
 		return nil, err
 	}
 
-	endpoint := c.l.r.Addr + "/v1/query"
+	endpoint = c.l.r.Addr + endpoint
 	if c.l.debug != nil {
 		endpoint += "?explain=full"
 	}
@@ -226,6 +223,9 @@ func (c *RemoteClient) Query(ctx context.Context, option QueryOption) (output in
 	result := map[string]interface{}{}
 	if err = json.Unmarshal(bs, &result); err == nil {
 		rs := result["result"]
+		if !binding {
+			return rs, nil
+		}
 		if rse, ok := rs.([]interface{}); ok && len(rse) != 0 {
 			rs = rse[0]
 		}
@@ -236,7 +236,7 @@ func (c *RemoteClient) Query(ctx context.Context, option QueryOption) (output in
 	return
 }
 
-func prepare(mode bundle.Mode, option QueryOption) (query string, input map[string]interface{}) {
+func localPrepare(mode bundle.Mode, option QueryOption) (query string, input map[string]interface{}) {
 	input = make(map[string]interface{}, len(option.Input))
 	for k, v := range option.Input {
 		input[k] = v
@@ -253,6 +253,30 @@ func prepare(mode bundle.Mode, option QueryOption) (query string, input map[stri
 		query = fmt.Sprintf("x := data.svc.%s", option.Rule)
 		query = strings.TrimRight(query, ".")
 		input["uid"] = bundle.Normalize(option.UID)
+	}
+	return
+}
+
+func remotePrepare(mode bundle.Mode, option QueryOption) (endpoint string, body map[string]interface{}, binding bool) {
+	body = make(map[string]interface{})
+	switch mode {
+	case bundle.FlattenMode:
+		endpoint = fmt.Sprintf("/v1/data/svc/members/%s/%s", bundle.Normalize(option.UID), option.Rule)
+		endpoint = strings.TrimRight(endpoint, "/")
+		body["input"] = option.Input
+	case bundle.DataMode:
+		endpoint = fmt.Sprintf("/v1/data/svc/%s", option.Rule)
+		endpoint = strings.TrimRight(endpoint, "/")
+		option.Input["uid"] = bundle.Normalize(option.UID)
+		body["input"] = option.Input
+	case bundle.GroupMode:
+		endpoint = "/v1/query"
+		input, _ := json.Marshal(option.Input)
+		query := fmt.Sprintf("y := data.svc.groups[data.svc.memberships.%s[_]].%s", bundle.Normalize(option.UID), option.Rule)
+		query = strings.TrimRight(query, ".")
+		query = fmt.Sprintf("x := [y | %s] with input as %s", query, input)
+		body["query"] = query
+		binding = true
 	}
 	return
 }
