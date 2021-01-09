@@ -9,7 +9,7 @@ the RBAC system. That is, it needs to be able to return values other than true/f
 
 Although OPA Rego has that ability, it will become quite hard to read and write the Rego files.
 
-While using per user/group rego moele, it will be much simpler, for example: 
+While using per user/group rego model, it will be much simpler, for example: 
 
 ```rego
 package user1
@@ -84,7 +84,7 @@ it is recommended running OPA server sidecar to collect metrics or audit logs on
 ```golang
 generator := lego.NewLego(factory, lego.WithSidecar(lego.SidecarOPA{
     Addr:      "http://127.0.0.1:8181",
-    BundleDst: "/shared/filesyste/path/bundle.tar.gz",
+    BundleDst: "/shared/filesystem/path/bundle.tar.gz",
 }))
 ```
 
